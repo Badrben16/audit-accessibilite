@@ -18,6 +18,7 @@ Ce bot audite automatiquement une liste de sites et génère un fichier Excel si
 ```bash
 npm install
 npx playwright install chromium
+npx playwright install --with-deps chromium
 npm start
 ```
 
