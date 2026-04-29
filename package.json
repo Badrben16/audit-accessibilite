@@ -1,0 +1,13 @@
+{
+  "name": "audit-accessibilite-bot",
+  "version": "1.0.0",
+  "description": "Bot audit accessibilit\u00e9 RGAA/WCAG - couleurs, contrastes, titres et images",
+  "main": "audit.js",
+  "scripts": {
+    "start": "node audit.js"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "playwright": "^1.48.0"
+  }
+}
