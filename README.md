@@ -1,4 +1,4 @@
-# Bot Audit Accessibilité RGAA / WCAG
+# BotBB99 Audit Accessibilité RGAA / WCAG
 
 Ce bot audite automatiquement une liste de sites et génère un fichier Excel similaire au modèle RGAA.
 
@@ -31,3 +31,4 @@ audit-accessibilite-rgaa.xlsx
 ## Modifier la liste des sites
 
 Modifie le fichier `urls.txt`.
+
