@@ -7,90 +7,19 @@ const urls = fs.readFileSync("urls.txt", "utf8")
   .map(u => u.trim())
   .filter(Boolean);
 
-function getRecommendation(row) {
-  if (row.status !== "KO" && row.status !== "À vérifier") return "";
-
-  const ref = `${row.theme} ${row.ref} ${row.expected}`.toLowerCase();
-
-  if (ref.includes("contraste")) {
-    return "Corriger les contrastes selon le RGAA/WCAG AA : 4.5:1 pour le texte normal, 3:1 pour le grand texte et 3:1 pour les composants graphiques essentiels.";
-  }
-  if (ref.includes("couleur")) {
-    return "Ne pas transmettre une information uniquement par la couleur. Ajouter un texte explicite, une icône, une forme ou un libellé visible.";
-  }
-  if (ref.includes("lien")) {
-    return "Rendre les liens identifiables sans dépendre uniquement de la couleur : soulignement, graisse, icône, focus visible ou autre indicateur visuel.";
-  }
-  if (ref.includes("titre") || ref.includes("rubrique")) {
-    return "Structurer la page avec une hiérarchie de titres logique : H1 principal, puis H2, H3, sans saut incohérent.";
-  }
-  if (ref.includes("image") || ref.includes("alternative")) {
-    return "Ajouter un attribut alt pertinent aux images porteuses d’information. Pour les images décoratives, utiliser alt=\"\".";
-  }
-  if (ref.includes("langue") || ref.includes("lang")) {
-    return "Déclarer correctement la langue principale avec l’attribut lang sur la balise html, par exemple <html lang=\"fr\">.";
-  }
-  if (ref.includes("formulaire") || ref.includes("champ")) {
-    return "Associer chaque champ à un nom accessible via label, aria-label ou aria-labelledby. Le placeholder seul n’est pas suffisant.";
-  }
-  if (ref.includes("erreur")) {
-    return "Afficher des messages d’erreur explicites, reliés au champ concerné, compréhensibles et annoncés aux technologies d’assistance.";
-  }
-
-  return "Corriger l’écart selon les critères RGAA applicables.";
-}
-
 async function auditSite(page, url) {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
   await page.waitForTimeout(2500);
 
   return await page.evaluate(() => {
-    function srgbToLin(c) {
-      c = c / 255;
-      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-    }
-
-    function luminance(rgb) {
-      return 0.2126 * srgbToLin(rgb[0]) +
-             0.7152 * srgbToLin(rgb[1]) +
-             0.0722 * srgbToLin(rgb[2]);
-    }
-
-    function contrastRatio(fg, bg) {
-      const L1 = luminance(fg);
-      const L2 = luminance(bg);
-      return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
-    }
-
-    function parseRgb(value) {
-      const match = String(value || "").match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-      return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
-    }
-
     function isVisible(el) {
       const style = getComputedStyle(el);
       const rect = el.getBoundingClientRect();
       return style.display !== "none" &&
-             style.visibility !== "hidden" &&
-             rect.width > 0 &&
-             rect.height > 0;
+        style.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0;
     }
-
-    function getEffectiveBackground(el) {
-      let current = el;
-      while (current && current !== document.documentElement) {
-        const bg = getComputedStyle(current).backgroundColor;
-        if (bg && bg !== "transparent" && !bg.includes("rgba(0, 0, 0, 0)")) return bg;
-        current = current.parentElement;
-      }
-      return "rgb(255, 255, 255)";
-    }
-
-    const result = {
-      title: document.title || "",
-      pageLang: document.documentElement.getAttribute("lang") || "",
-      rows: []
-    };
 
     function addRow(theme, ref, test, expected, status, comment) {
       result.rows.push({
@@ -104,28 +33,32 @@ async function auditSite(page, url) {
       });
     }
 
+    const result = {
+      rows: []
+    };
+
+    const pageLang = document.documentElement.getAttribute("lang") || "";
+
     addRow(
       "CONTENU TEXTUEL",
       "Donner un titre aux pages",
-      "Examiner le titre de page (<title>).",
-      "Chaque page possède un titre unique et descriptif.",
+      "Lancer l’inspecteur de code du navigateur et examiner le titre de page (<title>).",
+      "Chaque page possède un titre unique et descriptif du contenu.",
       document.title && document.title.trim().length > 5 ? "OK" : "KO",
       document.title ? `Titre détecté : ${document.title}` : "Aucun titre de page détecté."
     );
 
     const headings = [...document.querySelectorAll("h1,h2,h3,h4,h5,h6")].filter(isVisible);
-    const headingComment = headings
-      .slice(0, 8)
-      .map(h => `${h.tagName}: ${(h.innerText || "").trim().slice(0, 50)}`)
-      .join(" | ");
 
     addRow(
       "CONTENU TEXTUEL",
       "Donner un titre aux rubriques",
-      "Inspecter les balises Hn.",
-      "Tous les titres visuels possèdent une sémantique de titre H1 à H6.",
+      "Installer le bookmarklet Headings et vérifier les titres.",
+      "Tous les contenus traités visuellement comme des titres possèdent une sémantique de titre.",
       headings.length > 0 ? "OK" : "KO",
-      headings.length > 0 ? `${headings.length} titre(s) Hn détecté(s). ${headingComment}` : "Aucun titre Hn détecté."
+      headings.length > 0
+        ? `${headings.length} titre(s) détecté(s) : ${headings.slice(0, 8).map(h => `${h.tagName} ${(h.innerText || "").trim()}`).join(" | ")}`
+        : "Aucun titre Hn détecté."
     );
 
     const levels = headings.map(h => Number(h.tagName.substring(1)));
@@ -138,8 +71,8 @@ async function auditSite(page, url) {
     addRow(
       "CONTENU TEXTUEL",
       "Donner un titre aux rubriques",
-      "Inspecter la hiérarchie des titres.",
-      "Les titres sont hiérarchisés de manière logique.",
+      "Installer le bookmarklet Headings et vérifier la hiérarchie des titres.",
+      "Les titres de niveaux sont hiérarchisés de manière à refléter leur poids sémantique.",
       headings.length === 0 || hierarchyIssue ? "KO" : "OK",
       headings.length === 0
         ? "Impossible de vérifier : aucun Hn détecté."
@@ -151,19 +84,19 @@ async function auditSite(page, url) {
     addRow(
       "CONTENU TEXTUEL",
       "Indiquer la langue principale",
-      "Examiner l'élément <html>.",
-      "Un attribut lang est présent dans <html>.",
-      result.pageLang ? "OK" : "KO",
-      result.pageLang ? `Lang détecté : ${result.pageLang}` : "Attribut lang absent sur <html>."
+      "Lancer l’inspecteur de code du navigateur. Examiner l’élément <html>.",
+      "Un attribut lang est présent dans l’élément <html> de la page.",
+      pageLang ? "OK" : "KO",
+      pageLang ? `Lang détecté : ${pageLang}` : "Attribut lang absent."
     );
 
     addRow(
       "CONTENU TEXTUEL",
       "Indiquer la langue principale",
-      "Examiner la valeur de l'attribut lang.",
-      "La valeur de lang correspond à la langue principale du document.",
-      result.pageLang ? "OK" : "KO",
-      result.pageLang ? `Valeur lang : ${result.pageLang}. À confirmer selon le contenu réel.` : "Langue principale non déclarée."
+      "Lancer l’inspecteur de code du navigateur. Examiner l’élément <html>.",
+      "La valeur de l’attribut lang correspond à la langue principale du document.",
+      pageLang ? "À vérifier" : "KO",
+      pageLang ? `Valeur détectée : ${pageLang}. À confirmer manuellement.` : "Langue principale non déclarée."
     );
 
     const images = [...document.images].filter(isVisible);
@@ -173,36 +106,68 @@ async function auditSite(page, url) {
 
     addRow(
       "CONTENU NON TEXTUEL",
-      "S'assurer que les images ont une alternative textuelle",
-      "Inspecter les images-liens.",
-      "Chaque image-lien possède une alternative pertinente.",
+      "S’assurer que les images ont une alternative textuelle",
+      "Installer puis lancer le bookmarklet List Images ou l’inspecteur de code.",
+      "Image lien : le contenu de l’attribut alt de chaque image-lien est pertinent par rapport à la cible du lien.",
       imageLinks.length === 0 ? "NA" : imageLinks.every(img => img.hasAttribute("alt")) ? "OK" : "KO",
       imageLinks.length === 0
         ? "Aucune image-lien détectée."
-        : `${imageLinks.length} image(s)-lien détectée(s). ${imageLinks.filter(img => !img.hasAttribute("alt")).length} sans alt.`
+        : `${imageLinks.length} image(s)-lien détectée(s), ${imageLinks.filter(img => !img.hasAttribute("alt")).length} sans alt.`
     );
 
     addRow(
       "CONTENU NON TEXTUEL",
-      "S'assurer que les images ont une alternative textuelle",
-      "Inspecter les images porteuses d'information.",
-      "Chaque image porteuse d'information possède un alt pertinent.",
+      "S’assurer que les images ont une alternative textuelle",
+      "Installer puis lancer le bookmarklet List Images ou l’inspecteur de code.",
+      "Image porteuse d’information : l’attribut alt de chaque image est pertinent.",
       missingAlt.length === 0 ? "OK" : "KO",
       missingAlt.length === 0
-        ? `${images.length} image(s) analysée(s), pas d'image sans alt détectée.`
+        ? `${images.length} image(s) analysée(s), aucune image sans alt détectée.`
         : `${missingAlt.length} image(s) sans attribut alt.`
     );
 
     addRow(
       "CONTENU NON TEXTUEL",
-      "S'assurer que les images ont une alternative textuelle",
-      "Inspecter les images décoratives.",
-      "Les images décoratives ont un alt vide.",
+      "S’assurer que les images ont une alternative textuelle",
+      "Installer puis lancer le bookmarklet List Images ou l’inspecteur de code.",
+      "Image décorative : l’attribut alt est présent mais vide.",
       emptyAlt.length > 0 ? "OK" : "NA",
       emptyAlt.length > 0
-        ? `${emptyAlt.length} image(s) avec alt vide détectée(s), à confirmer comme décoratives.`
+        ? `${emptyAlt.length} image(s) avec alt vide détectée(s).`
         : "Aucune image décorative avec alt vide détectée."
     );
+
+    function srgbToLin(c) {
+      c = c / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    function luminance(rgb) {
+      return 0.2126 * srgbToLin(rgb[0]) +
+        0.7152 * srgbToLin(rgb[1]) +
+        0.0722 * srgbToLin(rgb[2]);
+    }
+
+    function contrastRatio(fg, bg) {
+      const L1 = luminance(fg);
+      const L2 = luminance(bg);
+      return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+    }
+
+    function parseRgb(value) {
+      const match = String(value || "").match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+    }
+
+    function getEffectiveBackground(el) {
+      let current = el;
+      while (current && current !== document.documentElement) {
+        const bg = getComputedStyle(current).backgroundColor;
+        if (bg && bg !== "transparent" && !bg.includes("rgba(0, 0, 0, 0)")) return bg;
+        current = current.parentElement;
+      }
+      return "rgb(255, 255, 255)";
+    }
 
     const textIssues = [];
     const elements = [...document.querySelectorAll("body *")].filter(isVisible).slice(0, 900);
@@ -230,63 +195,70 @@ async function auditSite(page, url) {
     addRow(
       "COULEURS ET CONTRASTE",
       "Assurer un contraste suffisamment élevé entre texte et arrière-plan",
-      "Vérifier les ratios de contraste.",
-      "Texte normal 4.5:1, grand texte 3:1, contenu non textuel 3:1.",
+      "Installer et lancer Color Contrast Analyser.",
+      "Color Contrast Analyser affiche Conforme pour les critères AA : texte normal 4.5:1, grand texte 3:1, contenu non textuel 3:1.",
       textIssues.length === 0 ? "OK" : "KO",
       textIssues.length === 0
         ? "Aucun écart de contraste détecté automatiquement."
-        : `Contrastes insuffisants détectés : ${textIssues.slice(0, 5).join(" | ")}`
+        : `Contrastes insuffisants : ${textIssues.slice(0, 5).join(" | ")}`
     );
 
     const colorStatusElements = [...document.querySelectorAll("[class*='error'],[class*='success'],[class*='warning'],[class*='danger'],[class*='alert'],[class*='status'],[class*='badge'],[class*='tag']")].filter(isVisible);
 
     addRow(
       "COULEURS ET CONTRASTE",
-      "S'assurer que l'information n'est pas transmise uniquement par la couleur",
-      "Inspecter les messages, statuts, badges et indicateurs colorés.",
-      "L'information transmise par la couleur est aussi disponible par un texte explicite.",
+      "S’assurer que l’information n’est pas transmise uniquement par la couleur",
+      "Installer et lancer Color Contrast Analyser.",
+      "L’information transmise par la couleur peut également être obtenue par un texte explicite.",
       colorStatusElements.length === 0 ? "NA" : "À vérifier",
       colorStatusElements.length === 0
-        ? "Aucun élément de statut/couleur évident détecté."
+        ? "Aucun élément de statut/couleur détecté."
         : `${colorStatusElements.length} élément(s) de statut/couleur détecté(s). Vérification manuelle nécessaire.`
     );
 
-    const noDoubleCoding = colorStatusElements.filter(el => {
-      const hasText = (el.innerText || "").trim().length > 1;
-      const hasIcon = !!el.querySelector("svg,img,i,[class*='icon']");
-      const hasAria = !!el.getAttribute("aria-label");
-      return !hasText && !hasIcon && !hasAria;
-    });
-
     addRow(
-      "COULEURS ET CONTRASTE",
-      "S'assurer que l'information n'est pas transmise uniquement par la couleur",
-      "Inspecter le double codage visuel.",
-      "La couleur est complétée par une icône, une forme, un texte ou un libellé.",
-      noDoubleCoding.length === 0 ? "OK" : "KO",
-      noDoubleCoding.length === 0
-        ? "Aucun élément coloré sans double codage détecté automatiquement."
-        : `${noDoubleCoding.length} élément(s) coloré(s) sans texte, icône ou aria-label.`
+      "NAVIGATION GÉNÉRALE",
+      "Permettre le contrôle des animations",
+      "Identifier tout contenu en mouvement, mis à jour automatiquement, clignotant ou en défilement.",
+      "L’utilisateur peut mettre en pause ou masquer les animations, mouvements, mises à jour ou clignotements.",
+      "À vérifier",
+      "Test manuel nécessaire : carrousel, slider, vidéo, animation ou contenu dynamique."
     );
 
-    const paragraphLinks = [...document.querySelectorAll("p a, li a, article a, main a")].filter(isVisible);
-    const linkIssues = paragraphLinks.filter(a => {
-      const style = getComputedStyle(a);
-      const underlined = String(style.textDecorationLine || style.textDecoration).includes("underline");
-      const bold = (parseInt(style.fontWeight) || 400) >= 700;
-      const hasIcon = !!a.querySelector("svg,img");
-      return !underlined && !bold && !hasIcon;
+    const interactive = [...document.querySelectorAll("a, button, input, select, textarea, [tabindex], [role='button'], [role='link']")].filter(isVisible);
+    const keyboardIssues = interactive.filter(el => {
+      const tag = el.tagName.toLowerCase();
+      const tabindex = el.getAttribute("tabindex");
+      return tabindex === "-1" && ["a", "button", "input", "select", "textarea"].includes(tag);
     });
 
     addRow(
-      "COULEURS ET CONTRASTE",
-      "S'assurer que l'information n'est pas transmise uniquement par la couleur",
-      "Inspecter les liens dans le texte.",
-      "Les liens non soulignés disposent d'un autre moyen visuel que la couleur seule.",
-      linkIssues.length === 0 ? "OK" : "KO",
-      linkIssues.length === 0
-        ? "Les liens analysés semblent distinguables."
-        : `${linkIssues.length} lien(s) semblent non distinguables autrement que par la couleur.`
+      "NAVIGATION CLAVIER",
+      "Permettre l’utilisation de l’application au clavier",
+      "Parcourir la page au clavier à l’aide des touches Tab ou Shift + Tab.",
+      "Tous les éléments interactifs sont atteignables en naviguant au clavier.",
+      keyboardIssues.length === 0 ? "À vérifier" : "KO",
+      keyboardIssues.length === 0
+        ? `${interactive.length} élément(s) interactif(s) détecté(s). Test clavier manuel nécessaire.`
+        : `${keyboardIssues.length} élément(s) semblent exclus de la navigation clavier.`
+    );
+
+    addRow(
+      "NAVIGATION CLAVIER",
+      "Permettre l’utilisation de l’application au clavier",
+      "Utiliser les éléments interactifs au clavier avec Entrée, Espace et les flèches directionnelles.",
+      "Tous les éléments interactifs sont utilisables depuis des interactions clavier.",
+      "À vérifier",
+      "Doublon du test 22 / test manuel nécessaire."
+    );
+
+    addRow(
+      "MISE EN PAGE",
+      "Utiliser des tailles relatives et faire du web adaptatif",
+      "Avec Firefox, sélectionner Zoom puis Agrandir uniquement le texte et activer un zoom à 200%.",
+      "Absence de contenus tronqués ou masqués et absence de fonctionnalités inutilisables.",
+      "À vérifier",
+      "Test manuel nécessaire à 200%."
     );
 
     const fields = [...document.querySelectorAll("input, select, textarea")]
@@ -311,9 +283,7 @@ async function auditSite(page, url) {
       }
 
       const parentLabel = el.closest("label");
-      if (!labelText && parentLabel) {
-        labelText = parentLabel.innerText.trim();
-      }
+      if (!labelText && parentLabel) labelText = parentLabel.innerText.trim();
 
       if (ariaLabelledby) {
         labelText = ariaLabelledby
@@ -343,10 +313,10 @@ async function auditSite(page, url) {
 
     addRow(
       "FORMULAIRES",
-      "S'assurer qu'un nom accessible est associé à chaque champ de formulaire",
-      "Inspecter le nom accessible des champs.",
-      "Chaque champ possède un nom accessible pertinent. Le placeholder seul n'est pas conforme.",
-      fields.length === 0 ? "NA" : (fieldsWithoutName.length === 0 && fieldsOnlyPlaceholder.length === 0 ? "OK" : "KO"),
+      "S’assurer qu’un nom accessible est associé à chaque champ de formulaire",
+      "Utiliser l’inspecteur de code du navigateur sur l’onglet Accessibilité.",
+      "Chaque champ a au moins un nom accessible pertinent et contient au moins le texte de l’étiquette de champ visible à l’écran.",
+      fields.length === 0 ? "NA" : fieldsWithoutName.length === 0 && fieldsOnlyPlaceholder.length === 0 ? "OK" : "KO",
       fields.length === 0
         ? "Aucun champ de formulaire détecté."
         : fieldsWithoutName.length > 0
@@ -358,13 +328,13 @@ async function auditSite(page, url) {
 
     addRow(
       "FORMULAIRES",
-      "S'assurer qu'un nom accessible est associé à chaque champ de formulaire",
-      "Inspecter la pertinence des étiquettes.",
-      "Chaque étiquette associée à un champ est pertinente.",
+      "S’assurer qu’un nom accessible est associé à chaque champ de formulaire",
+      "Vérifier la pertinence des étiquettes associées aux champs.",
+      "Chaque étiquette associée à un champ de formulaire est pertinente.",
       fields.length === 0 ? "NA" : "À vérifier",
       fields.length === 0
         ? "Aucun champ de formulaire détecté."
-        : `Labels/noms détectés : ${labelsToCheck.slice(0, 6).join(" | ")}. Pertinence à vérifier manuellement.`
+        : `Labels détectés : ${labelsToCheck.slice(0, 6).join(" | ")}. Pertinence à vérifier manuellement.`
     );
 
     const forms = [...document.querySelectorAll("form")].filter(isVisible);
@@ -376,9 +346,9 @@ async function auditSite(page, url) {
 
     addRow(
       "FORMULAIRES",
-      "S'assurer que les messages d'erreurs sont pertinents",
-      "Soumettre les formulaires avec erreurs.",
-      "Les messages d'erreurs sont présents, pertinents et identifient les champs en erreur.",
+      "S’assurer que les messages d’erreurs sont pertinents",
+      "Renseigner les formulaires avec des données erronées et des champs obligatoires laissés vides.",
+      "Les messages d’erreurs sont présents, pertinents, et identifient les champs en erreur.",
       forms.length === 0 ? "NA" : "À vérifier",
       forms.length === 0
         ? "Aucun formulaire détecté."
@@ -394,38 +364,41 @@ async function auditSite(page, url) {
 
   const browser = await chromium.launch({ headless: true });
   const workbook = new ExcelJS.Workbook();
+
   workbook.creator = "Bot audit accessibilité";
   workbook.created = new Date();
-
-  const summaryData = [];
 
   for (const url of urls) {
     const sheetName = new URL(url).hostname.replace("www.", "").substring(0, 31);
     let ws = workbook.getWorksheet(sheetName);
-    if (ws) ws = workbook.addWorksheet(sheetName.substring(0, 25) + "_" + Math.floor(Math.random() * 999));
-    else ws = workbook.addWorksheet(sheetName);
+
+    if (ws) {
+      ws = workbook.addWorksheet(sheetName.substring(0, 25) + "_" + Math.floor(Math.random() * 999));
+    } else {
+      ws = workbook.addWorksheet(sheetName);
+    }
 
     ws.columns = [
       { header: "Thématique", key: "theme", width: 26 },
-      { header: "Référence \"incontournable\"", key: "ref", width: 34 },
+      { header: "Référence \"incontournable\"", key: "ref", width: 42 },
       { header: "Tests à réaliser", key: "test", width: 55 },
-      { header: "Résultat attendu", key: "expected", width: 70 },
+      { header: "Résultat attendu", key: "expected", width: 80 },
       { header: "Conformité", key: "status", width: 16 },
-      { header: "Commentaire", key: "comment", width: 75 },
-      { header: "Recommandation RGAA", key: "recommendation", width: 75 },
+      { header: "Commentaire", key: "comment", width: 55 },
       { header: "URL de la page concernée", key: "url", width: 45 },
-      { header: "Copie d'écran (si non conforme)", key: "screenshot", width: 35 },
-      { header: "Nom et Date", key: "nameDate", width: 25 }
+      { header: "Copie d'écran (si non conforme)", key: "screenshot", width: 45 },
+      { header: "Nom et Date", key: "nameDate", width: 28 }
     ];
 
-    const page = await browser.newPage({ viewport: { width: 1024, height: 768 } });
+    const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 
     try {
       console.log("Audit :", url);
+
       const audit = await auditSite(page, url);
+      const hasKO = audit.rows.some(r => r.status === "KO");
 
       let screenshotPath = "";
-      const hasKO = audit.rows.some(r => r.status === "KO");
 
       if (hasKO) {
         const safeName = url.replace(/https?:\/\//, "").replace(/[^\w]/g, "_");
@@ -449,7 +422,6 @@ async function auditSite(page, url) {
           expected: row.expected,
           status: row.status,
           comment: row.comment,
-          recommendation: getRecommendation(row),
           url: row.url,
           screenshot: row.status === "KO" ? screenshotPath : "",
           nameDate: `Audit auto - ${new Date().toLocaleDateString("fr-FR")}`
@@ -462,37 +434,14 @@ async function auditSite(page, url) {
           });
 
           ws.addImage(imageId, {
-            tl: { col: 8, row: addedRow.number - 1 },
-            ext: { width: 180, height: 100 }
+            tl: { col: 7, row: addedRow.number - 1 },
+            ext: { width: 220, height: 120 }
           });
 
-          ws.getRow(addedRow.number).height = 80;
+          ws.getRow(addedRow.number).height = 95;
           imageInserted = true;
         }
       }
-
-      const totalTests = audit.rows.length;
-      const koCount = audit.rows.filter(r => r.status === "KO").length;
-      const okCount = audit.rows.filter(r => r.status === "OK").length;
-      const checkCount = audit.rows.filter(r => r.status === "À vérifier").length;
-      const naCount = audit.rows.filter(r => r.status === "NA").length;
-
-      const score = totalTests > 0
-        ? Math.round(((okCount + naCount) / totalTests) * 100)
-        : 0;
-
-      summaryData.push({
-        site: url,
-        score,
-        totalTests,
-        okCount,
-        koCount,
-        checkCount,
-        naCount,
-        topProblems: audit.rows.filter(r => r.status === "KO").map(r => `${r.theme} - ${r.ref}`).slice(0, 5).join(" | "),
-        priorityRecommendations: audit.rows.filter(r => r.status === "KO").map(r => getRecommendation(r)).filter(Boolean).slice(0, 3).join(" | ")
-      });
-
     } catch (error) {
       ws.addRow({
         theme: "ERREUR",
@@ -501,7 +450,6 @@ async function auditSite(page, url) {
         expected: "La page doit être accessible au bot.",
         status: "KO",
         comment: error.message,
-        recommendation: "Vérifier que la page est accessible, que le domaine ne bloque pas le bot ou que le chargement ne nécessite pas une interaction manuelle.",
         url,
         screenshot: "",
         nameDate: `Audit auto - ${new Date().toLocaleDateString("fr-FR")}`
@@ -510,25 +458,101 @@ async function auditSite(page, url) {
 
     await page.close();
 
-    ws.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-    ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF7F00" } };
-    ws.getRow(1).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-    ws.autoFilter = { from: "A1", to: "J1" };
+    ws.getRow(1).font = {
+      bold: true,
+      color: { argb: "FF000000" }
+    };
+
+    ws.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFF7F00" }
+    };
+
+    ws.getRow(1).alignment = {
+      vertical: "middle",
+      horizontal: "center",
+      wrapText: true
+    };
+
+    ws.getRow(1).height = 28;
+    ws.autoFilter = { from: "A1", to: "I1" };
     ws.views = [{ state: "frozen", ySplit: 1 }];
 
     ws.eachRow((row, rowNumber) => {
-      row.alignment = { vertical: "top", wrapText: true };
-      if (rowNumber > 1 && row.height < 80) row.height = 55;
+      row.alignment = {
+        vertical: "top",
+        wrapText: true
+      };
 
+      if (rowNumber > 1 && row.height < 55) {
+        row.height = 55;
+      }
+
+      const themeCell = row.getCell(1);
+      const refCell = row.getCell(2);
       const statusCell = row.getCell(5);
-      if (statusCell.value === "OK") {
-        statusCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF92D050" } };
-      } else if (statusCell.value === "KO") {
-        statusCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF6961" } };
-      } else if (statusCell.value === "NA") {
-        statusCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9D9D9" } };
-      } else if (statusCell.value === "À vérifier") {
-        statusCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFD966" } };
+      const commentCell = row.getCell(6);
+
+      if (rowNumber > 1) {
+        const theme = String(themeCell.value || "");
+
+        if (
+          theme.includes("COULEURS ET CONTRASTE") ||
+          theme.includes("NAVIGATION") ||
+          theme.includes("FORMULAIRES")
+        ) {
+          themeCell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFFFFF00" }
+          };
+
+          refCell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFFFFF00" }
+          };
+        }
+
+        if (statusCell.value === "OK") {
+          statusCell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FF92D050" }
+          };
+        } else if (statusCell.value === "KO") {
+          statusCell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFFF0000" }
+          };
+        } else if (statusCell.value === "NA") {
+          statusCell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFD9D9D9" }
+          };
+        } else if (statusCell.value === "À vérifier") {
+          statusCell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFFFD966" }
+          };
+        }
+
+        if (String(commentCell.value || "").includes("Doublon")) {
+          commentCell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFFF0000" }
+          };
+
+          commentCell.font = {
+            bold: true,
+            color: { argb: "FF000000" }
+          };
+        }
       }
 
       row.eachCell(cell => {
@@ -541,41 +565,6 @@ async function auditSite(page, url) {
       });
     });
   }
-
-  const summarySheet = workbook.addWorksheet("Résumé global");
-
-  summarySheet.columns = [
-    { header: "Site", key: "site", width: 45 },
-    { header: "Score global", key: "score", width: 18 },
-    { header: "Tests total", key: "totalTests", width: 15 },
-    { header: "OK", key: "okCount", width: 10 },
-    { header: "KO", key: "koCount", width: 10 },
-    { header: "À vérifier", key: "checkCount", width: 15 },
-    { header: "NA", key: "naCount", width: 10 },
-    { header: "Top problèmes", key: "topProblems", width: 70 },
-    { header: "Recommandations prioritaires", key: "priorityRecommendations", width: 90 }
-  ];
-
-  summaryData
-    .sort((a, b) => b.koCount - a.koCount || a.score - b.score)
-    .forEach(item => {
-      summarySheet.addRow({
-        site: item.site,
-        score: `${item.score}%`,
-        totalTests: item.totalTests,
-        okCount: item.okCount,
-        koCount: item.koCount,
-        checkCount: item.checkCount,
-        naCount: item.naCount,
-        topProblems: item.topProblems || "Aucun KO détecté",
-        priorityRecommendations: item.priorityRecommendations || "Aucune recommandation prioritaire"
-      });
-    });
-
-  summarySheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-  summarySheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF7F00" } };
-  summarySheet.autoFilter = { from: "A1", to: "I1" };
-  summarySheet.views = [{ state: "frozen", ySplit: 1 }];
 
   await browser.close();
 
