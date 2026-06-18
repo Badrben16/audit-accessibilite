@@ -155,6 +155,37 @@ async function auditSite(page, url) {
         : `${imagesWithNonEmptyAlt.length} image(s) avec alt non vide. Vérifier que l'alt reprend bien le texte visible dans l'image.`
     );
 
+    // CAPTCHA
+    const captchaImages = images.filter(img => {
+      const alt = (img.getAttribute("alt") || "").toLowerCase();
+      const src = (img.getAttribute("src") || "").toLowerCase();
+      const cls = (img.getAttribute("class") || "").toLowerCase();
+      const id = (img.getAttribute("id") || "").toLowerCase();
+      return alt.includes("captcha") || src.includes("captcha") || cls.includes("captcha") || id.includes("captcha");
+    });
+
+    addRow(
+      "CONTENU NON TEXTUEL",
+      "S'assurer que les images ont une alternative textuelle",
+      "",
+      "Pour chaque image utilisée comme CAPTCHA ou comme image-test, ayant une alternative textuelle, cette alternative permet-elle d'identifier la nature et la fonction de l'image ?",
+      captchaImages.length === 0 ? "NA" : "À vérifier",
+      captchaImages.length === 0
+        ? "Aucune image CAPTCHA détectée."
+        : `${captchaImages.length} image(s) CAPTCHA détectée(s). Vérifier que l'alternative textuelle identifie la nature et la fonction du CAPTCHA.`
+    );
+
+    addRow(
+      "CONTENU NON TEXTUEL",
+      "S'assurer que les images ont une alternative textuelle",
+      "",
+      "Pour chaque image utilisée comme CAPTCHA, une solution d'accès alternatif au contenu ou à la fonction du CAPTCHA est-elle présente ?",
+      captchaImages.length === 0 ? "NA" : "À vérifier",
+      captchaImages.length === 0
+        ? "Aucune image CAPTCHA détectée."
+        : `${captchaImages.length} image(s) CAPTCHA détectée(s). Vérifier si une alternative d'accès est proposée (audio CAPTCHA, autre mécanisme).`
+    );
+
     addRow(
       "CONTENU NON TEXTUEL",
       "S'assurer que les images ont une alternative textuelle",
@@ -187,6 +218,44 @@ async function auditSite(page, url) {
           : largeImages.length > 0
             ? `${largeImages.length} grande(s) image(s) (>400px) potentiellement complexe(s). Vérifier si une description longue est nécessaire.${figuresWithCaption.length > 0 ? ` ${figuresWithCaption.length} figure(s) avec figcaption détectée(s).` : ""}`
             : "Aucune image complexe détectée automatiquement (vérification manuelle conseillée)."
+    );
+
+    // Image texte
+    const textImages = images.filter(img => {
+      const alt = img.getAttribute("alt") || "";
+      const src = (img.getAttribute("src") || "").toLowerCase();
+      return alt !== "" && !img.closest("a") && !img.closest("figure") &&
+        !src.includes("logo") && !src.includes("icon") && !src.includes("avatar") && !src.includes("sprite");
+    });
+
+    addRow(
+      "CONTENU NON TEXTUEL",
+      "S'assurer que les images ont une alternative textuelle",
+      "",
+      "Chaque image texte porteuse d'information, en l'absence d'un mécanisme de remplacement, doit si possible être remplacée par du texte stylé. Cette règle est-elle respectée (hors cas particuliers) ?",
+      textImages.length === 0 ? "NA" : "À vérifier",
+      textImages.length === 0
+        ? "Aucune image texte porteuse d'information détectée."
+        : `${textImages.length} image(s) potentiellement porteuse(s) de texte détectée(s). Vérifier si elles peuvent être remplacées par du texte stylé CSS.`
+    );
+
+    // Légende d'image
+    const figuresWithImg = [...document.querySelectorAll("figure")].filter(fig => fig.querySelector("img"));
+    const figuresWithoutCaption = figuresWithImg.filter(fig => !fig.querySelector("figcaption"));
+    const imagesWithTitle = images.filter(img => img.hasAttribute("title") && !img.closest("figure"));
+
+    addRow(
+      "CONTENU NON TEXTUEL",
+      "S'assurer que les images ont une alternative textuelle",
+      "",
+      "Chaque légende d'image est-elle, si nécessaire, correctement reliée à l'image correspondante ?",
+      figuresWithImg.length === 0 && imagesWithTitle.length === 0 ? "NA"
+        : figuresWithoutCaption.length === 0 ? "OK" : "À vérifier",
+      figuresWithImg.length === 0 && imagesWithTitle.length === 0
+        ? "Aucune légende d'image (figure/figcaption ou title) détectée."
+        : figuresWithoutCaption.length > 0
+          ? `${figuresWithoutCaption.length} élément(s) <figure> sans <figcaption> détecté(s).`
+          : `${figuresWithImg.length} figure(s) avec figcaption correctement liées.${imagesWithTitle.length > 0 ? ` ${imagesWithTitle.length} image(s) avec attribut title.` : ""}`
     );
 
     // --- COULEURS ET CONTRASTE ---
